@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>학급 출결 및 생리결석 관리 시스템</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bgMain: '#FDFBF7',
+            cardBg: '#FFFFFF',
+            accentPeach: '#E07A5F',
+            accentHover: '#C2410C',
+            sandBg: '#F5F0EB',
+            warmBorder: '#E6DED8',
+            softText: '#4A3E3D',
+            mutedText: '#8C7B77',
+            noticeCard: '#FAF3EB',
+            badgeBg: '#F3E8DE',
+            alertRed: '#DC2626',
+            alertBg: '#FEF2F2'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #FDFBF7;
+      color: #4A3E3D;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .modal-backdrop {
+      background-color: rgba(74, 62, 61, 0.4);
+      backdrop-filter: blur(4px);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between antialiased selection:bg-rose-100 selection:text-rose-900">
+
+  <!-- 로딩 스피너 (오버레이) -->
+  <div id="loadingSpinner" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
+    <div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-3 border border-amber-100">
+      <div class="w-10 h-10 border-4 border-amber-200 border-t-[#E07A5F] rounded-full animate-spin"></div>
+      <p id="spinnerText" class="text-sm font-medium text-[#4A3E3D]">구글시트와 통신 중...</p>
+    </div>
+  </div>
+
+  <!-- 상단 네비게이션 헤더 -->
+  <header class="bg-[#F5F0EB] border-b border-[#E6DED8] sticky top-0 z-30 shadow-sm">
+    <div class="max-w-6xl mx-auto px-4 py-3.5 flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <div class="p-2 bg-[#E07A5F] text-white rounded-xl shadow-sm">
+          <i data-lucide="calendar-heart" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-lg text-[#4A3E3D] leading-tight">학급 출결 대시보드</h1>
+          <p class="text-xs text-[#8C7B77]" id="modeStatusText">학급 공지 모드 (학생 제시용)</p>
+        </div>
+      </div>
+
+      <!-- 모드 전환 버튼 -->
+      <div class="flex items-center gap-2">
+        <button id="toggleModeBtn" onclick="openAuthModal()" class="flex items-center gap-2 px-4 py-2 bg-white border border-[#E6DED8] text-[#4A3E3D] hover:bg-stone-50 rounded-xl text-sm font-semibold transition shadow-sm">
+          <i data-lucide="lock" class="w-4 h-4 text-[#E07A5F]" id="modeIcon"></i>
+          <span id="modeBtnText">교사 관리 모드</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 컨텐츠 영역 -->
+  <main class="max-w-6xl mx-auto px-4 py-6 flex-grow w-full">
+
+    <!-- 1. 학생 공지 모드 (비식별 전체 통계) -->
+    <div id="noticeView" class="space-y-6">
+      <!-- 생리결석 인정 제도 안내 카드 -->
+      <div class="bg-[#FAF3EB] border border-[#E6DED8] rounded-2xl p-5 shadow-sm">
+        <div class="flex items-start gap-3">
+          <div class="p-2 bg-amber-100 text-[#E07A5F] rounded-lg mt-0.5">
+            <i data-lucide="info" class="w-5 h-5"></i>
+          </div>
+          <div class="space-y-1">
+            <h3 class="font-bold text-[#4A3E3D] text-base">생리결석 출결 인정 안내</h3>
+            <ul class="text-xs text-[#8C7B77] space-y-1 list-disc pl-4 leading-relaxed">
+              <li>월 1회(연간 규정 범위 내)에 한하여 출결 인정 결석 처리가 가능합니다.</li>
+              <li>신청 시 담임교사 확인 및 소정의 증빙(또는 신청서) 제출이 필요합니다.</li>
+              <li>건강 보호 및 충실한 학교 생활을 위해 정당한 사유 발생 시 적극 이용 바랍니다.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 요약 통계 카드 -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-white p-4 rounded-2xl border border-[#E6DED8] shadow-sm text-center">
+          <p class="text-xs font-semibold text-[#8C7B77]">당월 전체 결석</p>
+          <p class="text-2xl font-bold text-[#4A3E3D] mt-1" id="statMonthlyAbsence">0건</p>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-[#E6DED8] shadow-sm text-center">
+          <p class="text-xs font-semibold text-[#8C7B77]">당월 생리결석</p>
+          <p class="text-2xl font-bold text-[#E07A5F] mt-1" id="statMonthlyMenstrual">0건</p>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-[#E6DED8] shadow-sm text-center">
+          <p class="text-xs font-semibold text-[#8C7B77]">당월 기타/질병결석</p>
+          <p class="text-2xl font-bold text-amber-600 mt-1" id="statMonthlyDisease">0건</p>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-[#E6DED8] shadow-sm text-center">
+          <p class="text-xs font-semibold text-[#8C7B77]">누적 인정 결석</p>
+          <p class="text-2xl font-bold text-emerald-700 mt-1" id="statTotalApproved">0건</p>
+        </div>
+      </div>
+
+      <!-- 월별/유형별 출결 시각화 차트 -->
+      <div class="grid md:grid-cols-3 gap-6">
+        <div class="md:col-span-2 bg-white p-5 rounded-2xl border border-[#E6DED8] shadow-sm">
+          <h3 class="font-bold text-[#4A3E3D] text-sm mb-4 flex items-center gap-2">
+            <i data-lucide="bar-chart-3" class="w-4 h-4 text-[#E07A5F]"></i> 월별 출결 유형 현황 (비식별 통계)
+          </h3>
+          <div class="h-64">
+            <canvas id="monthlyChart"></canvas>
+          </div>
+        </div>
+        <div class="bg-white p-5 rounded-2xl border border-[#E6DED8] shadow-sm flex flex-col justify-between">
+          <div>
+            <h3 class="font-bold text-[#4A3E3D] text-sm mb-4 flex items-center gap-2">
+              <i data-lucide="pie-chart" class="w-4 h-4 text-[#E07A5F]"></i> 출결 구분 비율
+            </h3>
+            <div class="h-48 flex justify-center items-center">
+              <canvas id="typePieChart"></canvas>
+            </div>
+          </div>
+          <p class="text-[11px] text-[#8C7B77] text-center mt-2">※ 학생 개개인의 식별 정보 및 기록은 절대로 노출되지 않습니다.</p>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- 2. 교사 관리 모드 (개인별 관리 및 주기 검증) -->
+    <div id="teacherView" class="hidden space-y-6">
+
+      <!-- 🔥 [구글시트 연동 입력 공간] -->
+      <div class="bg-white p-5 rounded-2xl border border-[#E6DED8] shadow-sm">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-stone-100">
+          <div>
+            <h3 class="font-bold text-[#4A3E3D] text-base flex items-center gap-2">
+              <i data-lucide="sheet" class="w-5 h-5 text-emerald-600"></i> Google Sheets 데이터베이스 연동 설정
+            </h3>
+            <p class="text-xs text-[#8C7B77] mt-0.5">발급받으신 Apps Script Web App URL을 아래에 입력하고 연동하세요.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="syncStatusBadge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+              LocalStorage (로컬 전용)
+            </span>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-col md:flex-row gap-2">
+          <!-- Apps Script URL 입력란 -->
+          <input type="text" id="gasUrlInput" placeholder="https://script.google.com/macros/s/AKfycbzPLr-sSIcT3-t2-6IvZHMdCQ-TJyVN_K5OiWdFCPzWhymOQWj45JvkCD7asmsZW0_k/exec" class="flex-grow px-3.5 py-2.5 border border-[#E6DED8] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#E07A5F]/40">
+          <button onclick="saveGasUrl()" class="px-5 py-2.5 bg-[#E07A5F] hover:bg-[#C2410C] text-white rounded-xl text-sm font-semibold transition flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap">
+            <i data-lucide="save" class="w-4 h-4"></i> URL 저장 및 연동
+          </button>
+          <button onclick="fetchFromGoogleSheet()" class="px-4 py-2.5 bg-stone-100 hover:bg-stone-200 text-[#4A3E3D] rounded-xl text-sm font-semibold transition flex items-center justify-center gap-1.5 whitespace-nowrap">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i> 동기화
+          </button>
+        </div>
+      </div>
+
+      <!-- 관리자 기능 버튼바 -->
+      <div class="flex flex-wrap items-center justify-between gap-3 bg-[#F5F0EB] p-4 rounded-2xl border border-[#E6DED8]">
+        <div class="flex items-center gap-2">
+          <button onclick="openAddStudentModal()" class="px-4 py-2 bg-[#E07A5F] hover:bg-[#C2410C] text-white rounded-xl text-sm font-semibold transition shadow-sm flex items-center gap-1.5">
+            <i data-lucide="user-plus" class="w-4 h-4"></i> 학생 추가
+          </button>
+          <button onclick="loadDemoData()" class="px-3.5 py-2 bg-white border border-[#E6DED8] text-[#4A3E3D] hover:bg-stone-50 rounded-xl text-sm font-medium transition shadow-sm">
+            데모 데이터 불러오기
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="resetAllData()" class="px-3.5 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl text-sm font-medium transition">
+            초기화
+          </button>
+        </div>
+      </div>
+
+      <!-- 학생 출결 관리 목록 -->
+      <div class="bg-white rounded-2xl border border-[#E6DED8] shadow-sm overflow-hidden">
+        <div class="p-4 bg-[#F5F0EB] border-b border-[#E6DED8] flex justify-between items-center">
+          <h3 class="font-bold text-[#4A3E3D] text-sm flex items-center gap-2">
+            <i data-lucide="users" class="w-4 h-4 text-[#E07A5F]"></i> 학생별 생리결석 및 출결 관리 목록
+          </h3>
+          <span class="text-xs text-[#8C7B77]">총 <strong id="studentCount">0</strong>명</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-stone-50 border-b border-[#E6DED8] text-xs text-[#8C7B77] uppercase">
+              <tr>
+                <th class="py-3 px-4">번호</th>
+                <th class="py-3 px-4">이름</th>
+                <th class="py-3 px-4">생리결석 이력 및 주기 검증</th>
+                <th class="py-3 px-4">최근 등록일</th>
+                <th class="py-3 px-4 text-center">관리</th>
+              </tr>
+            </thead>
+            <tbody id="studentTableBody" class="divide-y divide-stone-100">
+              <!-- JS 동적 생성 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- 푸터 -->
+  <footer class="bg-[#F5F0EB] border-t border-[#E6DED8] py-4 text-center text-xs text-[#8C7B77] mt-8">
+    <p>학급 출결 및 건강 정보 데이터 보안 모듈 탑재 ⓒ Teacher Attendance Helper</p>
+  </footer>
+
+
+  <!-- 비밀번호 인증 모달 -->
+  <div id="authModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl border border-[#E6DED8] space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-[#4A3E3D] text-base flex items-center gap-2">
+          <i data-lucide="shield-check" class="w-5 h-5 text-[#E07A5F]"></i> 교사 인증
+        </h3>
+        <button onclick="closeAuthModal()" class="text-[#8C7B77] hover:text-[#4A3E3D]"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <p class="text-xs text-[#8C7B77]">교사 전용 비밀번호를 입력해주세요. (초기 비밀번호: <code class="bg-stone-100 px-1 py-0.5 rounded text-amber-800 font-bold">1234</code>)</p>
+      <div>
+        <input type="password" id="authPasswordInput" placeholder="비밀번호 입력" class="w-full px-3.5 py-2.5 border border-[#E6DED8] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#E07A5F]/40" onkeyup="if(event.key==='Enter') verifyTeacherAuth()">
+        <p id="authErrorMsg" class="text-xs text-rose-600 mt-1.5 hidden">비밀번호가 올바르지 않습니다.</p>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeAuthModal()" class="px-4 py-2 border border-[#E6DED8] rounded-xl text-xs font-semibold text-[#8C7B77]">취소</button>
+        <button onclick="verifyTeacherAuth()" class="px-4 py-2 bg-[#E07A5F] hover:bg-[#C2410C] text-white rounded-xl text-xs font-semibold transition">확인</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- 학생 추가 모달 -->
+  <div id="addStudentModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl border border-[#E6DED8] space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-[#4A3E3D] text-base">신규 학생 등록</h3>
+        <button onclick="closeAddStudentModal()" class="text-[#8C7B77]"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-[#8C7B77] mb-1">번호</label>
+          <input type="number" id="newStudentNumber" placeholder="예: 1" class="w-full px-3.5 py-2 border border-[#E6DED8] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#E07A5F]/40">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-[#8C7B77] mb-1">이름</label>
+          <input type="text" id="newStudentName" placeholder="예: 홍길동" class="w-full px-3.5 py-2 border border-[#E6DED8] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#E07A5F]/40">
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeAddStudentModal()" class="px-4 py-2 border border-[#E6DED8] rounded-xl text-xs font-semibold text-[#8C7B77]">취소</button>
+        <button onclick="saveNewStudent()" class="px-4 py-2 bg-[#E07A5F] hover:bg-[#C2410C] text-white rounded-xl text-xs font-semibold transition">등록</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- 출결 기록 추가 모달 -->
+  <div id="addAttendanceModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-[#E6DED8] space-y-4">
+      <div class="flex justify-between items-center">
+        <div>
+          <h3 class="font-bold text-[#4A3E3D] text-base">출결 등록</h3>
+          <p class="text-xs text-[#8C7B77]" id="modalTargetStudentName">-</p>
+        </div>
+        <button onclick="closeAddAttendanceModal()" class="text-[#8C7B77]"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <input type="hidden" id="targetStudentId">
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-[#8C7B77] mb-1">결석 날짜</label>
+          <input type="date" id="attDate" class="w-full px-3.5 py-2 border border-[#E6DED8] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#E07A5F]/40">
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-[#8C7B77] mb-1">출결 구분</label>
+          <select id="attType" class="w-full px-3.5 py-2 border border-[#E6DED8] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#E07A5F]/40 bg-white">
+            <option value="생리결석">생리결석 (인정결석)</option>
+            <option value="질병결석">질병결석</option>
+            <option value="기타결석">기타결석</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-[#8C7B77] mb-1">비고 (선택)</label>
+          <input type="text" id="attMemo" placeholder="사유 또는 제출 서류 메모" class="w-full px-3.5 py-2 border border-[#E6DED8] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#E07A5F]/40">
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeAddAttendanceModal()" class="px-4 py-2 border border-[#E6DED8] rounded-xl text-xs font-semibold text-[#8C7B77]">취소</button>
+        <button onclick="saveAttendanceRecord()" class="px-4 py-2 bg-[#E07A5F] hover:bg-[#C2410C] text-white rounded-xl text-xs font-semibold transition">저장</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- JavaScript 로직 -->
+  <script>
+    let isTeacherAuth = false;
+    let currentGasUrl = localStorage.getItem('gas_web_app_url') || '';
+    let studentsData = [];
+
+    let barChartInstance = null;
+    let pieChartInstance = null;
+
+    // 초기화
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      document.getElementById('attDate').value = new Date().toISOString().substring(0, 10);
+      
+      if(currentGasUrl) {
+        document.getElementById('gasUrlInput').value = currentGasUrl;
+        updateSyncBadge(true);
+        fetchFromGoogleSheet();
+      } else {
+        loadFromLocalStorage();
+      }
+    });
+
+    // 로딩 표시
+    function showLoading(msg = '처리 중...') {
+      document.getElementById('spinnerText').innerText = msg;
+      document.getElementById('loadingSpinner').classList.remove('hidden');
+    }
+
+    function hideLoading() {
+      document.getElementById('loadingSpinner').classList.add('hidden');
+    }
+
+    // 연동 상태 배지 업데이트
+    function updateSyncBadge(isGoogle) {
+      const badge = document.getElementById('syncStatusBadge');
+      if (isGoogle) {
+        badge.className = 'px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 flex items-center gap-1';
+        badge.innerHTML = `<i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Google Sheets 연동됨`;
+      } else {
+        badge.className = 'px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800';
+        badge.innerText = 'LocalStorage (로컬 전용)';
+      }
+      lucide.createIcons();
+    }
+
+    // GAS URL 저장 및 연결
+    function saveGasUrl() {
+      const url = document.getElementById('gasUrlInput').value.trim();
+      if (!url) {
+        localStorage.removeItem('gas_web_app_url');
+        currentGasUrl = '';
+        updateSyncBadge(false);
+        alert('구글시트 URL이 해제되었습니다. 로컬 저장소 모드로 동작합니다.');
+        return;
+      }
+      localStorage.setItem('gas_web_app_url', url);
+      currentGasUrl = url;
+      updateSyncBadge(true);
+      fetchFromGoogleSheet();
+    }
+
+    // Google Sheets 데이터 불러오기
+    async function fetchFromGoogleSheet() {
+      if (!currentGasUrl) return;
+      showLoading('구글시트 데이터 동기화 중...');
+      try {
+        const response = await fetch(`${currentGasUrl}?action=fetchAll`);
+        const resData = await response.json();
+        if (resData.status === 'success' && Array.isArray(resData.students)) {
+          studentsData = resData.students;
+          saveToLocalStorageOnly(studentsData);
+          renderAll();
+        } else {
+          alert('구글시트 데이터를 불러오지 못했습니다.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('구글시트 통신 중 오류가 발생하여 로컬 저장 데이터로 대체합니다.');
+        loadFromLocalStorage();
+      } finally {
+        hideLoading();
+      }
+    }
+
+    // Google Sheets 저장
+    async function syncToGoogleSheet() {
+      saveToLocalStorageOnly(studentsData);
+      if (!currentGasUrl) return;
+
+      showLoading('구글시트에 변경사항 저장 중...');
+      try {
+        await fetch(currentGasUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'saveData', students: studentsData })
+        });
+      } catch (err) {
+        console.error('시트 저장 실패:', err);
+      } finally {
+        hideLoading();
+      }
+    }
+
+    function saveToLocalStorageOnly(data) {
+      localStorage.setItem('attendance_students_data', JSON.stringify(data));
+    }
+
+    function loadFromLocalStorage() {
+      const saved = localStorage.getItem('attendance_students_data');
+      if (saved) {
+        try { studentsData = JSON.parse(saved); } catch(e) { studentsData = []; }
+      } else {
+        studentsData = [];
+      }
+      renderAll();
+    }
+
+    function loadDemoData() {
+      if (!confirm('데모 데이터로 재설정하시겠습니까?')) return;
+      studentsData = [
+        {
+          id: '1', number: '1', name: '김민지',
+          attendance: [
+            { date: '2026-09-05', type: '생리결석', memo: '신청서 제출' },
+            { date: '2026-10-02', type: '생리결석', memo: '신청서 제출' }
+          ]
+        },
+        {
+          id: '2', number: '2', name: '박서연',
+          attendance: [
+            { date: '2026-10-10', type: '질병결석', memo: '감기약 복용' }
+          ]
+        },
+        {
+          id: '3', number: '3', name: '이지은',
+          attendance: [
+            { date: '2026-09-12', type: '생리결석', memo: '' },
+            { date: '2026-09-28', type: '생리결석', memo: '주기 미달 경고 예시' }
+          ]
+        }
+      ];
+      syncToGoogleSheet();
+      renderAll();
+    }
+
+    function resetAllData() {
+      if (!confirm('정말로 모든 학생 및 출결 데이터를 초기화하시겠습니까?')) return;
+      studentsData = [];
+      syncToGoogleSheet();
+      renderAll();
+    }
+
+    function renderAll() {
+      renderNoticeCharts();
+      if (isTeacherAuth) {
+        renderStudentTable();
+      }
+    }
+
+    // --- 교사 인증 ---
+    function openAuthModal() {
+      if (isTeacherAuth) {
+        isTeacherAuth = false;
+        document.getElementById('noticeView').classList.remove('hidden');
+        document.getElementById('teacherView').classList.add('hidden');
+        document.getElementById('modeStatusText').innerText = '학급 공지 모드 (학생 제시용)';
+        document.getElementById('modeBtnText').innerText = '교사 관리 모드';
+        document.getElementById('modeIcon').setAttribute('data-lucide', 'lock');
+        lucide.createIcons();
+        return;
+      }
+      document.getElementById('authPasswordInput').value = '';
+      document.getElementById('authErrorMsg').classList.add('hidden');
+      document.getElementById('authModal').classList.remove('hidden');
+    }
+
+    function closeAuthModal() {
+      document.getElementById('authModal').classList.add('hidden');
+    }
+
+    function verifyTeacherAuth() {
+      const pwd = document.getElementById('authPasswordInput').value;
+      if (pwd === '1234') {
+        isTeacherAuth = true;
+        closeAuthModal();
+        document.getElementById('noticeView').classList.add('hidden');
+        document.getElementById('teacherView').classList.remove('hidden');
+        document.getElementById('modeStatusText').innerText = '교사 전용 관리 모드';
+        document.getElementById('modeBtnText').innerText = '학급 공지 모드로 변경';
+        document.getElementById('modeIcon').setAttribute('data-lucide', 'eye');
+        lucide.createIcons();
+        renderStudentTable();
+      } else {
+        document.getElementById('authErrorMsg').classList.remove('hidden');
+      }
+    }
+
+    // --- 모달 제어 ---
+    function openAddStudentModal() {
+      document.getElementById('newStudentNumber').value = '';
+      document.getElementById('newStudentName').value = '';
+      document.getElementById('addStudentModal').classList.remove('hidden');
+    }
+
+    function closeAddStudentModal() {
+      document.getElementById('addStudentModal').classList.add('hidden');
+    }
+
+    function saveNewStudent() {
+      const num = document.getElementById('newStudentNumber').value.trim();
+      const name = document.getElementById('newStudentName').value.trim();
+      if (!num || !name) { alert('번호와 이름을 입력해주세요.'); return; }
+
+      const newStudent = {
+        id: Date.now().toString(),
+        number: num,
+        name: name,
+        attendance: []
+      };
+      studentsData.push(newStudent);
+      studentsData.sort((a,b) => parseInt(a.number) - parseInt(b.number));
+      closeAddStudentModal();
+      syncToGoogleSheet();
+      renderAll();
+    }
+
+    function openAddAttendanceModal(studentId) {
+      const student = studentsData.find(s => s.id === studentId);
+      if (!student) return;
+      document.getElementById('targetStudentId').value = studentId;
+      document.getElementById('modalTargetStudentName').innerText = `${student.number}번 ${student.name} 학생 출결 추가`;
+      document.getElementById('attMemo').value = '';
+      document.getElementById('addAttendanceModal').classList.remove('hidden');
+    }
+
+    function closeAddAttendanceModal() {
+      document.getElementById('addAttendanceModal').classList.add('hidden');
+    }
+
+    function saveAttendanceRecord() {
+      const studentId = document.getElementById('targetStudentId').value;
+      const date = document.getElementById('attDate').value;
+      const type = document.getElementById('attType').value;
+      const memo = document.getElementById('attMemo').value.trim();
+
+      if (!date) { alert('날짜를 선택하세요.'); return; }
+
+      const student = studentsData.find(s => s.id === studentId);
+      if (student) {
+        student.attendance.push({ date, type, memo });
+        student.attendance.sort((a,b) => new Date(a.date) - new Date(b.date));
+        closeAddAttendanceModal();
+        syncToGoogleSheet();
+        renderAll();
+      }
+    }
+
+    function deleteAttendance(studentId, index) {
+      if(!confirm('해당 출결 기록을 삭제하시겠습니까?')) return;
+      const student = studentsData.find(s => s.id === studentId);
+      if (student) {
+        student.attendance.splice(index, 1);
+        syncToGoogleSheet();
+        renderAll();
+      }
+    }
+
+    function deleteStudent(studentId) {
+      if (!confirm('해당 학생을 명부에서 삭제하시겠습니까?')) return;
+      studentsData = studentsData.filter(s => s.id !== studentId);
+      syncToGoogleSheet();
+      renderAll();
+    }
+
+    // --- 교사 모드 표 렌더링 ---
+    function renderStudentTable() {
+      const tbody = document.getElementById('studentTableBody');
+      document.getElementById('studentCount').innerText = studentsData.length;
+      tbody.innerHTML = '';
+
+      if (studentsData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-[#8C7B77]">등록된 학생이 없습니다. [학생 추가] 버튼을 클릭하세요.</td></tr>`;
+        return;
+      }
+
+      studentsData.forEach(student => {
+        const menstrualLogs = student.attendance.filter(a => a.type === '생리결석');
+        
+        let cycleBadges = '';
+        if (menstrualLogs.length > 1) {
+          for (let i = 1; i < menstrualLogs.length; i++) {
+            const prev = new Date(menstrualLogs[i-1].date);
+            const curr = new Date(menstrualLogs[i].date);
+            const diffDays = Math.round((curr - prev) / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 25) {
+              cycleBadges += `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-100 text-rose-700 border border-rose-200">
+                <i data-lucide="alert-circle" class="w-3 h-3"></i> 주기 ${diffDays}일 (25일 미만 이상)
+              </span> `;
+            } else if (diffDays >= 25 && diffDays <= 35) {
+              cycleBadges += `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                정상주기 (${diffDays}일)
+              </span> `;
+            } else {
+              cycleBadges += `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                주기 ${diffDays}일
+              </span> `;
+            }
+          }
+        } else if (menstrualLogs.length === 1) {
+          cycleBadges = `<span class="text-xs text-[#8C7B77]">1회 기록 (다음 사용 시 주기 계산)</span>`;
+        } else {
+          cycleBadges = `<span class="text-xs text-stone-400">기록 없음</span>`;
+        }
+
+        let attListHtml = student.attendance.map((a, idx) => `
+          <span class="inline-flex items-center gap-1 bg-[#FAF3EB] text-[#4A3E3D] text-xs px-2 py-1 rounded-lg border border-[#E6DED8]">
+            <strong class="${a.type==='생리결석'?'text-[#E07A5F]':'text-amber-700'}">${a.type}</strong> (${a.date})
+            <button onclick="deleteAttendance('${student.id}', ${idx})" class="text-stone-400 hover:text-rose-600 ml-1"><i data-lucide="x" class="w-3 h-3"></i></button>
+          </span>
+        `).join(' ');
+
+        const latestDate = student.attendance.length > 0 ? student.attendance[student.attendance.length - 1].date : '-';
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-stone-50 transition-colors";
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-bold text-[#4A3E3D]">${student.number}번</td>
+          <td class="py-3 px-4 font-semibold text-[#4A3E3D]">${student.name}</td>
+          <td class="py-3 px-4 space-y-1.5">
+            <div>${cycleBadges}</div>
+            <div class="flex flex-wrap gap-1.5 mt-1">${attListHtml}</div>
+          </td>
+          <td class="py-3 px-4 text-xs text-[#8C7B77]">${latestDate}</td>
+          <td class="py-3 px-4 text-center">
+            <div class="flex items-center justify-center gap-1">
+              <button onclick="openAddAttendanceModal('${student.id}')" class="px-2.5 py-1 bg-[#E07A5F] hover:bg-[#C2410C] text-white rounded-lg text-xs font-semibold transition">
+                + 출결등록
+              </button>
+              <button onclick="deleteStudent('${student.id}')" class="p-1 text-stone-400 hover:text-rose-600">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      lucide.createIcons();
+    }
+
+    // --- 공지 모드 차트 ---
+    function renderNoticeCharts() {
+      const now = new Date();
+      const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      let mAbsence = 0, mMenstrual = 0, mDisease = 0, totalApproved = 0;
+      const monthlyMap = {};
+      const typeMap = { '생리결석': 0, '질병결석': 0, '기타결석': 0 };
+
+      studentsData.forEach(student => {
+        student.attendance.forEach(att => {
+          totalApproved++;
+          typeMap[att.type] = (typeMap[att.type] || 0) + 1;
+
+          const monthKey = att.date.substring(0, 7);
+          if (!monthlyMap[monthKey]) {
+            monthlyMap[monthKey] = { '생리결석': 0, '질병결석': 0, '기타결석': 0 };
+          }
+          monthlyMap[monthKey][att.type] = (monthlyMap[monthKey][att.type] || 0) + 1;
+
+          if (monthKey === currentMonthStr) {
+            mAbsence++;
+            if (att.type === '생리결석') mMenstrual++;
+            else if (att.type === '질병결석') mDisease++;
+          }
+        });
+      });
+
+      document.getElementById('statMonthlyAbsence').innerText = `${mAbsence}건`;
+      document.getElementById('statMonthlyMenstrual').innerText = `${mMenstrual}건`;
+      document.getElementById('statMonthlyDisease').innerText = `${mDisease}건`;
+      document.getElementById('statTotalApproved').innerText = `${totalApproved}건`;
+
+      const labels = Object.keys(monthlyMap).sort();
+      const menstrualData = labels.map(m => monthlyMap[m]['생리결석'] || 0);
+      const diseaseData = labels.map(m => monthlyMap[m]['질병결석'] || 0);
+      const otherData = labels.map(m => monthlyMap[m]['기타결석'] || 0);
+
+      const ctxBar = document.getElementById('monthlyChart').getContext('2d');
+      if (barChartInstance) barChartInstance.destroy();
+
+      barChartInstance = new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+          labels: labels.length > 0 ? labels : [currentMonthStr],
+          datasets: [
+            { label: '생리결석', data: menstrualData, backgroundColor: '#E07A5F', borderRadius: 6 },
+            { label: '질병결석', data: diseaseData, backgroundColor: '#D97706', borderRadius: 6 },
+            { label: '기타결석', data: otherData, backgroundColor: '#A8A29E', borderRadius: 6 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } }
+          },
+          scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1 } }
+          }
+        }
+      });
+
+      const ctxPie = document.getElementById('typePieChart').getContext('2d');
+      if (pieChartInstance) pieChartInstance.destroy();
+
+      pieChartInstance = new Chart(ctxPie, {
+        type: 'doughnut',
+        data: {
+          labels: ['생리결석', '질병결석', '기타결석'],
+          datasets: [{
+            data: [typeMap['생리결석'], typeMap['질병결석'], typeMap['기타결석']],
+            backgroundColor: ['#E07A5F', '#D97706', '#A8A29E']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
